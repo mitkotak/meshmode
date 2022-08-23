@@ -41,6 +41,7 @@ from arraycontext import (
         dataclass_array_container,
         )
 from meshmode.transform_metadata import FirstAxisIsElementsTag
+import time
 
 import logging
 logger = logging.getLogger(__name__)
@@ -456,8 +457,14 @@ def main(lazy=False):
     cl_ctx = cl.create_some_context()
     queue = cl.CommandQueue(cl_ctx)
     if lazy:
-        actx = PytatoPyOpenCLArrayContext(queue)
+        from arraycontext import PytatoCUDAGraphArrayContext
+        import pycuda.autoinit
+        actx = PytatoCUDAGraphArrayContext()
+        # actx = PytatoPyOpenCLArrayContext(queue)
     else:
+        # from arraycontext import PyCUDAArrayContext
+        # import pycuda.autoinit
+        # actx = PyCUDAArrayContext()
         actx = PyOpenCLArrayContext(queue, force_device_scalars=True)
 
     nel_1d = 16
@@ -490,26 +497,57 @@ def main(lazy=False):
     compiled_rhs = actx.compile(rhs)
 
     t = np.float64(0)
-    t_final = 3
+    n_sim_rounds = 0
+    total_sim_time = 0.0
     istep = 0
-    while t < t_final:
+
+    # {{{ warmup_rounds 
+
+    for _ in range(10):
         fields = actx.thaw(actx.freeze(fields,))
         fields = rk4_step(fields, t, dt, compiled_rhs)
-
-        if istep % 10 == 0:
-            # FIXME: Maybe an integral function to go with the
-            # DOFArray would be nice?
-            assert len(fields.u) == 1
-            logger.info("[%05d] t %.5e / %.5e norm %.5e",
-                    istep, t, t_final, actx.to_numpy(flat_norm(fields.u, 2)))
-            vis.write_vtk_file("fld-wave-min-%04d.vtu" % istep, [
-                ("q", fields),
-                ])
-
         t += dt
-        istep += 1
+
+    # }}}        
+
+    min_timing_rounds = 1000
+    min_timing_secs = 3
+
+    while ((n_sim_rounds < min_timing_rounds)
+               or (total_sim_time < min_timing_secs)):
+
+        fields = actx.thaw(actx.freeze(fields,))
+        t_start = time.time()
+
+        for _ in range(100):
+            fields = actx.thaw(actx.freeze(fields,))
+            fields = rk4_step(fields, t, dt, compiled_rhs)
+
+            if istep % 10 == 0:
+                # FIXME: Maybe an integral function to go with the
+                # DOFArray would be nice?
+                assert len(fields.u) == 1
+                logger.info("[%05d] t %.5e / %.5e norm %.5e",
+                        istep, t, min_timing_secs, actx.to_numpy(flat_norm(fields.u, 2)))
+                vis.write_vtk_file("fld-wave-min-%04d.vtu" % istep, [
+                    ("q", fields),
+                    ])
+
+            istep += 1
+            t += dt
+
+        
+        fields = actx.thaw(actx.freeze(fields,))
+        t_end = time.time()
+
+        n_sim_rounds += 100
+        total_sim_time += (t_end - t_start)
+    
+    print(total_sim_time / n_sim_rounds)
 
     assert actx.to_numpy(flat_norm(fields.u, 2)) < 100
+
+    del fields
 
 
 if __name__ == "__main__":

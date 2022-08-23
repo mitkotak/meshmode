@@ -304,13 +304,12 @@ class PytestPytatoPyOpenCLArrayContextFactory(
     def actx_class(self):
         return PytatoPyOpenCLArrayContext
 
-
 register_pytest_array_context_factory("meshmode.pyopencl",
         PytestPyOpenCLArrayContextFactory)
 register_pytest_array_context_factory("meshmode.pyopencl-deprecated",
         PytestPyOpenCLArrayContextFactoryWithHostScalars)
 register_pytest_array_context_factory("meshmode.pytato_cl",
-        PytestPytatoPyOpenCLArrayContextFactory)
+        PytestPytatoPyOpenCLArrayContextFactory),
 
 # }}}
 
